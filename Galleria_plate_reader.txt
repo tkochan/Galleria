@@ -1,0 +1,95 @@
+
+#Required packages to install Run once and then comment the line so it doesn't install over and over again
+install.packages("readxl")
+install.packages("fluoSurv")
+install.packages("survival")
+install.packages("janitor")
+install.packages("reshape2")
+
+#Required packages to activate
+library(readxl)
+library(fluoSurv)
+library(survival)
+library(janitor)
+library(reshape2)
+
+#########################################################
+#Import data
+my_data <- read_excel("~/Downloads/data.xlsx", sheet=1)
+setup <- read.table("~/Desktop/setup.txt")
+
+#########################################################
+
+
+
+
+colnames(setup) <- setup[1,]
+setup <- setup[-(1),]
+setup$dead <- as.numeric(setup$dead)
+
+#prepare data from plate reader file
+dataframe <- my_data[-(1:57),]
+dataframe <- dataframe[,-(1:2)]
+
+#change sheet into data frame
+dataframe <- as.data.frame(dataframe)
+colnames(dataframe) <- dataframe[1,]
+dataframe <- dataframe[-(1),]
+
+#stackdata
+dfl <- melt(dataframe, id.vars=1)
+dfl
+colnames(dfl) <- c("t", "well", "value")
+dfl <- na.omit(dfl)
+dfl$t <- as.integer(dfl$t)
+dfl$t <- dfl[,1]/60/60
+dfl <- dfl[,c(2,3,1)]
+
+#add columns
+dfl$well <- as.character(dfl$well)
+dfl$num <- ave(dfl$well, dfl$well, FUN = seq_along)
+dfl$read <- 1
+dfl$exc <- 330
+dfl$em <- 700
+dfl$ID_read <- "1_330_700"
+
+
+#change well and ID_read columns into factors
+dfl$well <- as.factor(dfl$well)
+dfl$ID_read <- as.factor(dfl$ID_read)
+dfl$value <- as.integer(dfl$value)
+dfl$t <- as.numeric(dfl$t)
+dfl$read <- as.integer(dfl$read)
+dfl$exc <- as.integer(dfl$exc)
+dfl$em <- as.integer(dfl$em)
+dfl$num <- as.integer(dfl$num)
+
+#extract data into groups
+l <- lapply(split(dfl,dfl$well),extract.well)
+
+#offset based on living worms
+offset.alive <- estimate.offset(l,"1_330_700",min.t=1,max.t=5)
+
+#########################################################
+#offset based on dead worms
+#Change min.t=24-5 (24 is for 24 hours, change to length of plate reader run)
+offset.dead <- estimate.offset(l[which(setup$dead==1)],"1_330_700",min.t=24-5)
+#########################################################
+
+
+#output predicted times of death
+res <- sapply(l,function(x) estimate.LT(x$value_1_330_700,x$t_1_330_700,
+threshold.value=1,offset.dead=offset.dead,
+offset.alive=offset.alive))
+res <- as.data.frame(t(res))
+setupA <- cbind(setup,res[match(setup$well,rownames(res)),])
+
+#survival plot of data
+m <- survfit(Surv(LT,dead)~dilution,data=setupA)
+plot(m,lwd=c(3),col=c("red","blue","green","yellow","black"))
+legend("bottomleft",legend=c("A","B","C","D","PBS"),lwd=c(3),col=c("red","blue","green","yellow","black"))
+
+#########################################################
+write.csv(res, "~/Desktop/lethal_times.csv")
+
+########################################################
