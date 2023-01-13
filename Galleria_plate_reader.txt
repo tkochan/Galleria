@@ -91,5 +91,5 @@ legend("bottomleft",legend=c("A","B","C","D","PBS"),lwd=c(3),col=c("red","blue",
 
 #########################################################
 write.csv(res, "~/Desktop/lethal_times.csv")
-
+capture.output(summary(m), file = "~/Desktop/survival.txt")
 ########################################################
