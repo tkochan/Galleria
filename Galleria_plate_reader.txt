@@ -1,5 +1,4 @@
-# This script is used to take the output froma plate reader and determine time of death for injected worms and then calculate a lethal time 50 (LT50) for each dose.
-#
+
 #Required packages to install Run once and then comment the line so it doesn't install over and over again
 install.packages("readxl")
 install.packages("fluoSurv")
@@ -133,6 +132,9 @@ total[i]<- sum(!is.na(setupB$LT[setupB$CFU == i]))}
 print(total)
 total <-as.data.frame(total)
 
+#remove all rows that have an NA
+setupB <- na.omit(setupB)
+
 #change the LT values for any worms that didnt die to NA
 setupB$LT[setupB$dead == '0'] <- NA
 for (i in unique(setupB$CFU)) {
@@ -150,8 +152,7 @@ setupC <- setupC[order(setupC$CFU),]
 #Add new column with numbers of deaths
 setupC$deaths <- ave(setupC$CFU, setupC$CFU, FUN = seq_along)
 
-#remove all rows that have an NA
-setupC <- na.omit(setupC)
+
 
 #Add total number of worm deaths for each group to a new column
 for (CFU in unique(setupC$CFU)) {
@@ -164,13 +165,17 @@ for (CFU in unique(setupC$CFU)) {
   
 }
 
+
 #merge CFU and strain columns
 setupB$CFU <- paste(setupB$Strain, setupB$CFU, sep = "_")
 setupC$CFU <- paste(setupC$Strain, setupC$CFU, sep = "_")
 
 #Add two new rows for each group, one at time 0 and one at time 24
-for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,0,0,sum(!is.na(setupB$LT[setupB$CFU == i]))))}
-for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,24,sum(!is.na(setupB$LT[setupB$CFU == i])),sum(!is.na(setupB$LT[setupB$CFU == i]))))}
+for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,0,0,sum(setupB$CFU == i)))}
+for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,time,sum(!is.na(setupB$LT[setupB$CFU == i])),sum(setupB$CFU == i)))}
+
+#remove all rows that have an NA
+setupC <- na.omit(setupC)
 
 #Reorder based on LT and then CFU again
 setupC$LT <- as.numeric(setupC$LT)
@@ -262,6 +267,9 @@ for(strain in strains){
 write.csv(LT50s, file=output)
 
 write.csv(input, file=output2)
+
+
+
 
 
 
