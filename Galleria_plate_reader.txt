@@ -1,10 +1,13 @@
-
+# This script is used to take the output froma plate reader and determine time of death for injected worms and then calculate a lethal time 50 (LT50) for each dose.
+#
 #Required packages to install Run once and then comment the line so it doesn't install over and over again
 install.packages("readxl")
 install.packages("fluoSurv")
 install.packages("survival")
 install.packages("janitor")
 install.packages("reshape2")
+install.packages("dplyr")
+install.packages("drc")
 
 #Required packages to activate
 library(readxl)
@@ -12,15 +15,33 @@ library(fluoSurv)
 library(survival)
 library(janitor)
 library(reshape2)
+library(dplyr)
+library(drc)
 
-#########################################################
+########################################################################################################################################
+########################################################################################################################################
+########################################################################################################################################
+
 #Import data
+#From Plate Reader file
 my_data <- read_excel("~/Downloads/data.xlsx", sheet=1)
+
+#Setup file is required, manually fill this- Columns are seperated by tabs with these headings: well    dilution    time_injection    dead    CFU    Strain
 setup <- read.table("~/Desktop/setup.txt")
 
-#########################################################
+# Total Time of experiment, usually 24 hours
+time <- 24
 
+# Output files
+output <- "~/Desktop/LT50.csv"
+output2 <- "~/Desktop/LT.csv"
 
+#Throw out deaths that occur before a specific time maybe bad injections? usually 5 hours
+throwout <- 5
+
+########################################################################################################################################
+########################################################################################################################################
+########################################################################################################################################
 
 
 colnames(setup) <- setup[1,]
@@ -70,11 +91,10 @@ l <- lapply(split(dfl,dfl$well),extract.well)
 #offset based on living worms
 offset.alive <- estimate.offset(l,"1_330_700",min.t=1,max.t=5)
 
-#########################################################
+
 #offset based on dead worms
 #Change min.t=24-5 (24 is for 24 hours, change to length of plate reader run)
-offset.dead <- estimate.offset(l[which(setup$dead==1)],"1_330_700",min.t=24-5)
-#########################################################
+offset.dead <- estimate.offset(l[which(setup$dead==1)],"1_330_700",min.t=time-5)
 
 
 #output predicted times of death
@@ -89,7 +109,159 @@ m <- survfit(Surv(LT,dead)~dilution,data=setupA)
 plot(m,lwd=c(3),col=c("red","blue","green","yellow","black"))
 legend("bottomleft",legend=c("A","B","C","D","PBS"),lwd=c(3),col=c("red","blue","green","yellow","black"))
 
-#########################################################
-write.csv(res, "~/Desktop/lethal_times.csv")
-capture.output(summary(m), file = "~/Desktop/survival.txt")
-########################################################
+#################################################################################################################################################################################################
+#write.csv(res, "output_directory/file.csv")
+#write.csv(setupA, "output_directory/file.csv")
+
+#################################################################################################################################################################################################
+
+#duplicate file
+setupB <- setupA
+
+#remove unused columns
+setupB <- setupB[, -which(names(setupB) == "logLik")]
+setupB <- setupB[, -which(names(setupB) == "n")]
+
+#create mortality and total worm vectors
+total <- vector()
+mortality <-vector()
+
+#change the LT for any deaths that occured in less than 5 hours to NA these are probably bad injections
+setupB$LT[setupB$LT < throwout] <- NA
+for (i in unique(setupB$CFU)) {
+total[i]<- sum(!is.na(setupB$LT[setupB$CFU == i]))}
+print(total)
+total <-as.data.frame(total)
+
+#change the LT values for any worms that didnt die to NA
+setupB$LT[setupB$dead == '0'] <- NA
+for (i in unique(setupB$CFU)) {
+mortality[i]<- sum(!is.na(setupB$LT[setupB$CFU == i]))}
+print(mortality)
+mortality <-as.data.frame(mortality)
+
+#Change LT to numeric (important for sorting)
+setupB$LT <- as.numeric(setupB$LT)
+
+#Sort based on LT then CFU
+setupC <- setupB[order(setupB$LT),]
+setupC <- setupC[order(setupC$CFU),]
+
+#Add new column with numbers of deaths
+setupC$deaths <- ave(setupC$CFU, setupC$CFU, FUN = seq_along)
+
+#remove all rows that have an NA
+setupC <- na.omit(setupC)
+
+#Add total number of worm deaths for each group to a new column
+for (CFU in unique(setupC$CFU)) {
+  
+  # Count the total number of each cfu value
+  CFU_count <- sum(setupC$CFU == CFU)
+  
+  # Fill the new column with the cfu count
+  setupC$total[setupC$CFU == CFU] <- CFU_count
+  
+}
+
+#merge CFU and strain columns
+setupB$CFU <- paste(setupB$Strain, setupB$CFU, sep = "_")
+setupC$CFU <- paste(setupC$Strain, setupC$CFU, sep = "_")
+
+#Add two new rows for each group, one at time 0 and one at time 24
+for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,0,0,sum(!is.na(setupB$LT[setupB$CFU == i]))))}
+for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,24,sum(!is.na(setupB$LT[setupB$CFU == i])),sum(!is.na(setupB$LT[setupB$CFU == i]))))}
+
+#Reorder based on LT and then CFU again
+setupC$LT <- as.numeric(setupC$LT)
+setupC <- setupC[order(setupC$LT),]
+setupC <- setupC[order(setupC$CFU),]
+
+#Remove unused columns, change to numeric, and rename CFU column to Strain
+setupC <- setupC[, -which(names(setupC) == "well")]
+setupC <- setupC[, -which(names(setupC) == "dilution")]
+setupC <- setupC[, -which(names(setupC) == "time_injection")]
+setupC <- setupC[, -which(names(setupC) == "dead")]
+setupC$deaths <- as.numeric(setupC$deaths)
+setupC$total <- as.numeric(setupC$total)
+setupC <- setupC[, -which(names(setupC) == "Strain")]
+setupC <- setupC %>% 
+       rename("Strain" = "CFU")
+       
+       
+####################################################################################################################################################################################################
+#Calculate LT50
+input <- setupC[,c(1,2,4,3)]
+
+#make a list of all unique strains
+strains <- unique(input$Strain)
+
+#Create a data frame to hold a summary of all experiments for each strain
+mort <- as.data.frame(matrix(nrow=length(strains),ncol=4))
+rownames(mort) <- strains
+colnames(mort) <- c("time","total","dead","CFU")
+
+#Initialize empty lists for time, total worms, and mortalities.  This will be a list of vectors, where each vector is the corresponding data for all experiments with a given strain
+d <- list()
+tot <- list()
+m <- list()
+p <- list()
+
+# Iterate through each unique strain
+# Create a sub-table including just the experiments with that strain
+# extract all time, total worms, and mortality data from these strains to the above vectors
+for(strain in strains){
+  print(strain)
+ # print(which(input$Strain == strain))
+  t <- input[which(input$Strain == strain),]
+  d[[strain]] <- t[,2]
+  tot[[strain]] <- t[,3]
+  m[[strain]] <- t[,4]
+  p[[strain]] <- t[,1]
+}
+
+# Use the time, total worms, and mortality lists to fill the summary data frame
+mort$time <- d
+mort$total <- tot
+mort$dead <- m
+mort$dose <- p
+
+#Create a data frame to hold LT50 and SD for each strain
+#also create a data frame to hold LT50s and SD if calculated using non-log10 transformed times
+LT50s <- as.data.frame(matrix(nrow=length(strains),ncol=3))
+colnames(LT50s) <- c("SD","LT50","CFU")
+LT50s_nonlog <- LT50s
+
+# For each strain extract the time, total worms, and mortality information from the mort table
+# Try to fit to bionomial distribution using drc (drm) - if possible put in LT50s table
+# Done with logtime = 10 as well to compare to case when you convert back to raw time becore fitting to model
+for(strain in strains){
+  times <- unlist(mort[strain,"time"])
+  total_worms <- unlist(mort[strain,"total"])
+  mortalities <- unlist(mort[strain,"dead"])
+  dose <- unlist(mort[strain,"dose"])
+  print(strain)
+  try({
+    model <- drm(mortalities/total_worms ~ times, weights = total_worms, fct = LL.2(), type = "binomial")
+    LT50s[strain,"LT50"] <- ED(model,50)[1]
+    LT50s[strain,"SD"] <- ED(model,50)[2]
+    
+    
+  })
+}
+
+#Fill CFU column in the LT50s dataframe
+for(strain in strains){
+    dose <- unlist(mort[strain,"dose"])
+    print (dose[1])
+    LT50s[(strain),("CFU")] <- (dose[1])
+}
+
+
+
+write.csv(LT50s, file=output)
+
+write.csv(input, file=output2)
+
+
+
