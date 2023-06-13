@@ -44,7 +44,7 @@ PlateReader <- 1000
 #Time of death for worms that are still alive at end of experiment for LT50 scripts, Default is 24 hours 
 Endpoint <-- 24
 
-#
+#This makes first row of setup file the column names. then deletes the first row. 
 colnames(setup) <- setup[1,]
 setup <- setup[-(1),]
 setup$dead <- as.numeric(setup$dead)
