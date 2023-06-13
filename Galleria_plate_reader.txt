@@ -23,10 +23,10 @@ library(drc)
 
 #Import data
 #From Plate Reader file
-my_data <- read_excel("~/Downloads/data.xlsx", sheet=1)
+my_data <- read_excel("~/Downloads/PABL066_4.xls", sheet=1)
 
 #Setup file is required, manually fill this- Columns are seperated by tabs with these headings: well    dilution    time_injection    dead    CFU    Strain
-setup <- read.table("~/Desktop/setup.txt")
+setup <- read.table("~/Downloads/setup066_4.txt")
 
 # Total Time of experiment, usually 24 hours
 time <- 24
@@ -35,8 +35,14 @@ time <- 24
 output <- "~/Desktop/LT50.csv"
 output2 <- "~/Desktop/LT.csv"
 
-#Throw out deaths that occur before a specific time maybe bad injections? usually 5 hours
+#Throw out deaths that occur before a specific time maybe bad injections? Default 5 hours
 throwout <- 5
+
+#Use 1 for New plate reader, 1000 for Old Plate reader
+PlateReader <- 1000 
+
+#Time of death for worms that are still alive at end of experiment for LT50 scripts, Default is 24 hours 
+Endpoint <-- 24
 
 ########################################################################################################################################
 ########################################################################################################################################
@@ -47,14 +53,15 @@ colnames(setup) <- setup[1,]
 setup <- setup[-(1),]
 setup$dead <- as.numeric(setup$dead)
 
-#prepare data from plate reader file
+#prepare data from plate reader file, this deletes first 57 rows and first two columns. neccessary for xml file from new plate reader
 dataframe <- my_data[-(1:57),]
 dataframe <- dataframe[,-(1:2)]
+#dataframe <- my_data
 
 #change sheet into data frame
 dataframe <- as.data.frame(dataframe)
-colnames(dataframe) <- dataframe[1,]
-dataframe <- dataframe[-(1),]
+#colnames(dataframe) <- dataframe[1,]
+#dataframe <- dataframe[-(1),]
 
 #stackdata
 dfl <- melt(dataframe, id.vars=1)
@@ -77,12 +84,18 @@ dfl$ID_read <- "1_330_700"
 #change well and ID_read columns into factors
 dfl$well <- as.factor(dfl$well)
 dfl$ID_read <- as.factor(dfl$ID_read)
-dfl$value <- as.integer(dfl$value)
+dfl$value <- as.numeric(dfl$value)
 dfl$t <- as.numeric(dfl$t)
 dfl$read <- as.integer(dfl$read)
 dfl$exc <- as.integer(dfl$exc)
 dfl$em <- as.integer(dfl$em)
 dfl$num <- as.integer(dfl$num)
+
+######################################################################################
+# Neccessary for old plate reader, RFU values are low and script doesn't handle it well
+dfl$value <- dfl$value*PlateReader
+######################################################################################
+
 
 #extract data into groups
 l <- lapply(split(dfl,dfl$well),extract.well)
@@ -98,8 +111,8 @@ offset.dead <- estimate.offset(l[which(setup$dead==1)],"1_330_700",min.t=time-5)
 
 #output predicted times of death
 res <- sapply(l,function(x) estimate.LT(x$value_1_330_700,x$t_1_330_700,
-threshold.value=1,offset.dead=offset.dead,
-offset.alive=offset.alive))
+                                        threshold.value=1,offset.dead=offset.dead,
+                                        offset.alive=offset.alive))
 res <- as.data.frame(t(res))
 setupA <- cbind(setup,res[match(setup$well,rownames(res)),])
 
@@ -172,7 +185,7 @@ setupC$CFU <- paste(setupC$Strain, setupC$CFU, sep = "_")
 
 #Add two new rows for each group, one at time 0 and one at time 24
 for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,0,0,sum(setupB$CFU == i)))}
-for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,time,sum(!is.na(setupB$LT[setupB$CFU == i])),sum(setupB$CFU == i)))}
+for (i in unique(setupC$CFU)) { setupC <- rbind(setupC, c(0, 0,0, 0, i, 0,Endpoint,sum(!is.na(setupB$LT[setupB$CFU == i])),sum(setupB$CFU == i)))}
 
 #remove all rows that have an NA
 setupC <- na.omit(setupC)
