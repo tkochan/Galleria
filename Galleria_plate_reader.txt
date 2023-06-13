@@ -38,30 +38,35 @@ output2 <- "~/Desktop/LT.csv"
 #Throw out deaths that occur before a specific time maybe bad injections? Default 5 hours
 throwout <- 5
 
-#Use 1 for New plate reader, 1000 for Old Plate reader
+#Use 1 for New plate reader, 1000 for Old Plate reader, may need a 3rd parameter if we get a another plate reader.
 PlateReader <- 1000 
 
 #Time of death for worms that are still alive at end of experiment for LT50 scripts, Default is 24 hours 
 Endpoint <-- 24
 
-########################################################################################################################################
-########################################################################################################################################
-########################################################################################################################################
-
-
+#
 colnames(setup) <- setup[1,]
 setup <- setup[-(1),]
 setup$dead <- as.numeric(setup$dead)
 
 #prepare data from plate reader file, this deletes first 57 rows and first two columns. neccessary for xml file from new plate reader
+#Pay attention to format of data coming off of the plate reader.
 dataframe <- my_data[-(1:57),]
 dataframe <- dataframe[,-(1:2)]
 #dataframe <- my_data
 
 #change sheet into data frame
 dataframe <- as.data.frame(dataframe)
-#colnames(dataframe) <- dataframe[1,]
-#dataframe <- dataframe[-(1),]
+
+#pay attention to column names. For example, they should be Time, A1, A2, etc. 
+#This script makes the first row the column names and then deletes the first row. Not neccessary if column names are already correct. 
+colnames(dataframe) <- dataframe[1,]
+dataframe <- dataframe[-(1),]
+
+########################################################################################################################################
+########################################################################################################################################
+########################################################################################################################################
+
 
 #stackdata
 dfl <- melt(dataframe, id.vars=1)
