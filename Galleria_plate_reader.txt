@@ -1,14 +1,15 @@
 
-#Required packages to install Run once and then comment the line so it doesn't install over and over again
-install.packages("readxl")
-install.packages("fluoSurv")
-install.packages("survival")
-install.packages("janitor")
-install.packages("reshape2")
-install.packages("dplyr")
-install.packages("drc")
+# Required packages to install Run once and then comment the line so it doesn't install over and over again
+# install.packages("readxl")
+# install.packages("fluoSurv")
+# install.packages("survival")
+# install.packages("janitor")
+# install.packages("reshape2")
+# install.packages("dplyr")
+# install.packages("drc")
+# install.packages("ggplot2")
 
-#Required packages to activate
+# Required packages to activate
 library(readxl)
 library(fluoSurv)
 library(survival)
@@ -16,57 +17,67 @@ library(janitor)
 library(reshape2)
 library(dplyr)
 library(drc)
+library(ggplot2)
 
 ########################################################################################################################################
 ########################################################################################################################################
 ########################################################################################################################################
+
+# Your initials
+initials <- "TW"
 
 #Import data
 #From Plate Reader file
-my_data <- read_excel("~/Downloads/PABL066_4.xls", sheet=1)
+my_data <- read_excel("~/Downloads/PABL066_chris.xlsx", sheet=1)
 
 #Setup file is required, manually fill this- Columns are seperated by tabs with these headings: well    dilution    time_injection    dead    CFU    Strain
-setup <- read.table("~/Downloads/setup066_4.txt")
+setup <- read.table("~/Desktop/setup_PABL066_chris.txt")
 
-# Total Time of experiment, usually 24 hours
+# Total Time of experiment in hours, usually 24 hours
 time <- 24
 
 # Output files
-output <- "~/Desktop/LT50.csv"
-output2 <- "~/Desktop/LT.csv"
+output <- "~/Desktop/PABL066_chris_LT50.csv"
+output2 <- "~/Desktop/PABL066_chris_LT.csv"
 
 #Throw out deaths that occur before a specific time maybe bad injections? Default 5 hours
 throwout <- 5
 
 #Use 1 for New plate reader, 1000 for Old Plate reader, may need a 3rd parameter if we get a another plate reader.
-PlateReader <- 1000 
+PlateReader <- 1000
 
 #Time of death for worms that are still alive at end of experiment for LT50 scripts, Default is 24 hours 
-Endpoint <-- 24
+Endpoint <- 24
+
+########################################################################################################################################
+########################################################################################################################################
+########################################################################################################################################
+
+# Creates a "times" vector with all of the times in seconds
+times <- c("Time", seq(0, time*60*60, by = 240))
+
+# Find the row and column indices of the cell containing the word "Time" followed by any characters
+time_row <- which(apply(my_data, 1, function(row) any(grepl("A1\\S*", row, ignore.case = TRUE))))
+time_col <- which(apply(my_data, 2, function(col) any(grepl("A1\\S*", col, ignore.case = TRUE))))
+
+# Subset the data frame to remove rows above the identified row index and columns to the left of the identified column index
+subset_data <- my_data[time_row:(time_row + length(times) - 1), time_col:(time_col + 47)]
+
+# Add Time column
+dataframe <- cbind(times, subset_data)
+
+# Omit all NAs
+dataframe <- na.omit(dataframe)
 
 #This makes first row of setup file the column names. then deletes the first row. 
 colnames(setup) <- setup[1,]
 setup <- setup[-(1),]
 setup$dead <- as.numeric(setup$dead)
 
-#prepare data from plate reader file, this deletes first 57 rows and first two columns. neccessary for xml file from new plate reader
-#Pay attention to format of data coming off of the plate reader.
-dataframe <- my_data[-(1:57),]
-dataframe <- dataframe[,-(1:2)]
-#dataframe <- my_data
-
-#change sheet into data frame
-dataframe <- as.data.frame(dataframe)
-
 #pay attention to column names. For example, they should be Time, A1, A2, etc. 
 #This script makes the first row the column names and then deletes the first row. Not neccessary if column names are already correct. 
 colnames(dataframe) <- dataframe[1,]
 dataframe <- dataframe[-(1),]
-
-########################################################################################################################################
-########################################################################################################################################
-########################################################################################################################################
-
 
 #stackdata
 dfl <- melt(dataframe, id.vars=1)
@@ -121,10 +132,26 @@ res <- sapply(l,function(x) estimate.LT(x$value_1_330_700,x$t_1_330_700,
 res <- as.data.frame(t(res))
 setupA <- cbind(setup,res[match(setup$well,rownames(res)),])
 
-#survival plot of data
+# Plot of each well's fluorescence data as well as time of death
+well_labels <- paste(setupA$well, ", ", setupA$Strain, "_", setupA$CFU, sep = "")
+names(well_labels) <- setupA$well
+ggplot() +
+  geom_line(aes(x = t, y = value), data = dfl, size = 0.4) +
+  geom_vline(aes(xintercept = LT), data = setupA, color = "red") +
+  facet_wrap(~well, nrow = 6, ncol = 8, labeller = as_labeller(well_labels)) +
+  theme_bw() +
+  xlab("Time (hours)") +
+  ylab("Value") +
+  labs(title = paste(names(sort(table(setupA$Strain), decreasing = TRUE)[1]), initials, Sys.Date()))
+
+
+# survival plot of data
+num_strains <- length(unique(setupA$CFU))
+colors <- c("red","blue","green","yellow","black")[1:num_strains]
+labels <- c("A","B","C","D","PBS")[c(1:(num_strains-1), 5)]
 m <- survfit(Surv(LT,dead)~dilution,data=setupA)
-plot(m,lwd=c(3),col=c("red","blue","green","yellow","black"))
-legend("bottomleft",legend=c("A","B","C","D","PBS"),lwd=c(3),col=c("red","blue","green","yellow","black"))
+plot(m,lwd=c(3),col=colors)
+legend("bottomleft",legend=labels,lwd=c(3),col=colors)
 
 #################################################################################################################################################################################################
 #write.csv(res, "output_directory/file.csv")
@@ -146,7 +173,7 @@ mortality <-vector()
 #change the LT for any deaths that occured in less than 5 hours to NA these are probably bad injections
 setupB$LT[setupB$LT < throwout] <- NA
 for (i in unique(setupB$CFU)) {
-total[i]<- sum(!is.na(setupB$LT[setupB$CFU == i]))}
+  total[i]<- sum(!is.na(setupB$LT[setupB$CFU == i]))}
 print(total)
 total <-as.data.frame(total)
 
@@ -156,7 +183,7 @@ setupB <- na.omit(setupB)
 #change the LT values for any worms that didnt die to NA
 setupB$LT[setupB$dead == '0'] <- NA
 for (i in unique(setupB$CFU)) {
-mortality[i]<- sum(!is.na(setupB$LT[setupB$CFU == i]))}
+  mortality[i]<- sum(!is.na(setupB$LT[setupB$CFU == i]))}
 print(mortality)
 mortality <-as.data.frame(mortality)
 
@@ -209,9 +236,9 @@ setupC$deaths <- as.numeric(setupC$deaths)
 setupC$total <- as.numeric(setupC$total)
 setupC <- setupC[, -which(names(setupC) == "Strain")]
 setupC <- setupC %>% 
-       rename("Strain" = "CFU")
-       
-       
+  rename("Strain" = "CFU")
+
+
 ####################################################################################################################################################################################################
 #Calculate LT50
 input <- setupC[,c(1,2,4,3)]
@@ -235,7 +262,7 @@ p <- list()
 # extract all time, total worms, and mortality data from these strains to the above vectors
 for(strain in strains){
   print(strain)
- # print(which(input$Strain == strain))
+  # print(which(input$Strain == strain))
   t <- input[which(input$Strain == strain),]
   d[[strain]] <- t[,2]
   tot[[strain]] <- t[,3]
@@ -275,17 +302,19 @@ for(strain in strains){
 
 #Fill CFU column in the LT50s dataframe
 for(strain in strains){
-    dose <- unlist(mort[strain,"dose"])
-    print (dose[1])
-    LT50s[(strain),("CFU")] <- (dose[1])
+  dose <- unlist(mort[strain,"dose"])
+  print (dose[1])
+  LT50s[(strain),("CFU")] <- (dose[1])
 }
 
-
+# Remove N/A rows, resort LT50 data frame to make it easier to read
+LT50s <- LT50s[!is.na(LT50s$CFU),]
+LT50s <- LT50s[,c(2,1)]
+LT50s <- LT50s[order(LT50s$LT50),]
 
 write.csv(LT50s, file=output)
 
 write.csv(input, file=output2)
-
 
 
 
